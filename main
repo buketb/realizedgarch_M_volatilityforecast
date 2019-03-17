@@ -1,0 +1,135 @@
+library(rugarch)
+require(xts)
+require(zoo)
+data(spyreal)
+library(fBasics)
+library(stargazer)
+#basic statistics:
+bstats<-as.matrix(basicStats(spyreal))
+stargazer(bstats, title="Basic statistics")
+#plots:
+plot(spyreal$SPY_OC, main="Returns, Open-to-close", type="l", col="pink")
+plot(spyreal$SPY_RK, main="Realized Kernel", type="l", col="light blue")
+#histograms:
+x<-hist(spyreal$SPY_OC, plot=TRUE, col=c("red","pink"), main="Histogram of Returns"
+, xlab="Values", ylab="Number of Observations", cex.lab="grey", breaks = 250)
+curve(dnorm(x, mean=mean(spyreal$SPY_OC), sd=sqrt(var(spyreal$SPY_OC))), col="black", lwd=2, add=TRUE)
+#dnorm: density for normal distribution with mean equal to mean and standard deviation equal to sd I set.
+grid()
+y<-hist(spreal$SPY_RK, plot=TRUE, col=c("blue", "light blue"), main="Histogram of Realized Kernel",
+xlab="Values", ylab="Number of Observations", cex.lab=.8, col.lab="grey", breaks= 250)
+curve(dnorm(y, mean=mean(spyreal$SPY_RK), sd=sqrt(var(spyreal$SPY_RK))), col="black", lwd=2, add=TRUE)
+grid()
+#open-to-close returns and realized kernel in the framework RGARCH with logaritmic specification:
+#sample regressions:
+#RGARCH(1,1):
+spec11=ugarchspec(mean.model= list(armaOrder = c(0,0), include.mean= FALSE), 
+variance.model = list(model= "realGARCH", garchOrder=c(1,1)))
+fitrg11=ugarchfit(spec11, spyreal[,1]*100, solver= "hybrid", realizedVol = spyreal[,2]*100)
+#RGARCH(1,2):
+spec12=ugarchspec(mean.model= list(armaOrder = c(0,0), include.mean= FALSE), 
+variance.model = list(model= "realGARCH", garchOrder=c(1,2)))
+fitrg12=ugarchfit(spec12, spyreal[,1]*100, solver= "hybrid", realizedVol = spyreal[,2]*100)
+#RGARCH(2,1):
+spec21=ugarchspec(mean.model= list(armaOrder = c(0,0), include.mean= FALSE), 
+variance.model = list(model= "realGARCH", garchOrder=c(2,1)))
+fitrg21=ugarchfit(spec21, spyreal[,1]*100, solver= "hybrid", realizedVol = spyreal[,2]*100)
+#RGARCH(2,2):
+spec22=ugarchspec(mean.model= list(armaOrder = c(0,0), include.mean= FALSE), 
+variance.model = list(model= "realGARCH", garchOrder=c(2,2)))
+fitrg22=ugarchfit(spec22, spyreal[,1]*100, solver= "hybrid", realizedVol = spyreal[,2]*100)
+
+#news impact curve
+ni= newsimpact(fitrg11, z = seq(-2,2, lenght.out=100))
+plot(ni$zx, (ni$zy), ylab= ni$yexpr, xlab = ni$xexpr, type="l", cex.main=.8, cex.lab= .7, cex.axis=.7, col="orange",
+lwd=2, main="News Impact Curve of RGARCH (1,1)")
+
+#in-sample estimations and out-of-sample forecasts:
+#in-sample:
+fitinrg11 = ugarchfit(spec11, spyreal[, 1]*100, solver = 'hybrid',out.sample = 167, realizedVol = spyreal[,2]*100)
+fitinrg12 = ugarchfit(spec12, spyreal[, 1]*100, solver = 'hybrid',out.sample = 167, realizedVol = spyreal[,2]*100)
+fitinrg21 = ugarchfit(spec21, spyreal[, 1]*100, solver = 'hybrid',out.sample = 167, realizedVol = spyreal[,2]*100)
+fitinrg22 = ugarchfit(spec22, spyreal[, 1]*100, solver = 'hybrid',out.sample = 167, realizedVol = spyreal[,2]*100)
+
+#first I set fixed the coefficients from in-sample regression to use them for out-of-sample regressions
+specf11 = spec11
+setfixed(specf11) <- as.list(coef(fitinrg11)) #fitinrg11 is in-sample regression. this is to fix the coefficients from in-sample regression
+
+specf12 = spec12
+setfixed(specf12) <- as.list(coef(fitinrg12)) #fitinrg12 is in-sample regression. this is to fix the coefficients from in-sample regression
+
+specf21 = spec21
+setfixed(specf21) <- as.list(coef(fitinrg21)) 
+
+specf22 = spec22
+setfixed(specf22) <- as.list(coef(fitinrg22)) 
+
+#out-of-sample forecast with the specification setfixed by coefficients of in-sample regression
+#ugarchfilter method make us to use fixed coefficients from in-sample to estimate out-of-sample part
+#without doing any n-step ahead forecast. fot futher info: please see: intro_to_rugarch 
+filt11=ugarchfilter(specf11, data = spyreal[, 1] * 100,
+                    n.old = nrow(spyreal) - 167, 
+                    realizedVol = spyreal[, 2] * 100)
+filt12=ugarchfilter(specf12, data = spyreal[, 1] * 100,
+                    n.old = nrow(spyreal) - 167, 
+                    realizedVol = spyreal[, 2] * 100)
+filt21=ugarchfilter(specf21, data = spyreal[, 1] * 100,
+                    n.old = nrow(spyreal) - 167, 
+                    realizedVol = spyreal[, 2] * 100)
+filt22=ugarchfilter(specf22, data = spyreal[, 1] * 100,
+                    n.old = nrow(spyreal) - 167, 
+                    realizedVol = spyreal[, 2] * 100)
+                    
+#1-step ahead forecasts with 166 rolling windows:
+#in this case forcasts start with 2008-01-02 end with 2008-08-29,
+#and the length equals 167, quite important for forecast performance (for QLIKE calculations) 
+forc11 = ugarchforecast(specf11, n.ahead = 1, n.roll = 166, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+forc12 = ugarchforecast(specf12, n.ahead = 1, n.roll = 166, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+forc21 = ugarchforecast(specf21, n.ahead = 1, n.roll = 166, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+forc22 = ugarchforecast(specf22, n.ahead = 1, n.roll = 166, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+#22-step ahead forecasts with 144 rolling windows:
+#by setting n.roll = 144 and out.sample 166, 22 step ahead 144 rolling windows gives the results
+#from 2008-01-02 to 2008-07-30, length of forecasted sigma is 145
+f22_11 = ugarchforecast(specf11, n.ahead = 22, n.roll = 144, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+f22_12 = ugarchforecast(specf12, n.ahead = 22, n.roll = 144, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+f22_21 = ugarchforecast(specf21, n.ahead = 22, n.roll = 144, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+f22_22 = ugarchforecast(specf22, n.ahead = 22, n.roll = 144, 
+                        data = spyreal[, 1] * 100, out.sample = 166, 
+                        realizedVol = spyreal[, 2] * 100)
+                        
+#figures: 
+ #out-of-sample forecast vs sample estimations:
+ 
+sigmaforcrg11<- as.numeric(forc11@forecast$sigmaFor)
+plot(sigmaforcrg11, type="l",cex.lab=0.7,cex.axis=0.8, col="orange",xlab="Index",lty=1,main="Out-of-sample Forecasts vs Sample Forecasts of RG(1,1)", cex.main=0.8,ylab="Sigma",lwd=2, ylim=c(0,max(sigmaforcrg11,fitrg11@fit$sigma)))
+lines(tail(fitrg11@fit$sigma, n=167),lty=5,lwd=2, type="l",col="royal blue")
+legend('topright', c('Out-of-sample', 'Sample'), cex = 0.7, bty="n", lty=c(1,5), col=c("orange", "royal blue"), lwd=2)
+
+sigmaforcrg12<- as.numeric(forc12@forecast$sigmaFor)
+plot(sigmaforcrg12, type="l",cex.lab=0.7,cex.axis=0.8, col="orange",xlab="Index",lty=1,main="Out-of-sample Forecasts vs Sample Forecasts of RG(1,2)", cex.main=0.8,ylab="Sigma",lwd=2, ylim=c(0,max(sigmaforcrg11,fitrg11@fit$sigma)))
+lines(tail(fitrg12@fit$sigma, n=167),lty=5,lwd=2, type="l",col="royal blue")
+legend('topright', c('Out-of-sample', 'Sample'), cex = 0.7, bty="n", lty=c(1,5), col=c("orange", "royal blue"), lwd=2)
+
+sigmaforcrg21<- as.numeric(forc21@forecast$sigmaFor)
+plot(sigmaforcrg21, type="l",cex.lab=0.7,cex.axis=0.8, col="orange",xlab="Index",lty=1,main="Out-of-sample Forecasts vs Sample Forecasts of RG(2,1)", cex.main=0.8,ylab="Sigma",lwd=2, ylim=c(0,max(sigmaforcrg11,fitrg11@fit$sigma)))
+lines(tail(fitrg21@fit$sigma, n=167),lty=5,lwd=2, type="l",col="royal blue")
+legend('topright', c('Out-of-sample', 'Sample'), cex = 0.7, bty="n", lty=c(1,5), col=c("orange", "royal blue"), lwd=2)
+
+sigmaforcrg22<- as.numeric(forc22@forecast$sigmaFor)
+plot(sigmaforcrg22, type="l",cex.lab=0.7,cex.axis=0.8, col="orange",xlab="Index",lty=1,main="Out-of-sample Forecasts vs Sample Forecasts of RG(2,2)", cex.main=0.8,ylab="Sigma",lwd=2, ylim=c(0,max(sigmaforcrg11,fitrg11@fit$sigma)))
+lines(tail(fitrg22@fit$sigma, n=167),lty=5,lwd=2, type="l",col="royal blue")
+legend('topright', c('Out-of-sample', 'Sample'), cex = 0.7, bty="n", lty=c(1,5), col=c("orange", "royal blue"), lwd=2)
